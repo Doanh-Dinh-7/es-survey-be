@@ -1,0 +1,140 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String     @id @default(uuid()) @db.Uuid
+  email     String     @unique
+  auth0Id   String     @unique
+  password  String?
+  orgId     String?
+  token     String?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  responses Response[]
+  surveys   Survey[]
+}
+
+model Survey {
+  id          String         @id @default(uuid()) @db.Uuid
+  title       String
+  description String?
+  surveyMediaUrl String?     // Thêm field này để hiển thị hình ảnh cho survey
+  status      SurveyStatus   @default(PENDING)
+  aiAnalysis  String?
+  isTemplate  Boolean        @default(false)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  publishedAt DateTime?
+  closedAt    DateTime?
+  userId      String?        @db.Uuid
+  questions   Question[]
+  responses   Response[]
+  user        User?          @relation(fields: [userId], references: [id])
+  settings    SurveySetting?
+}
+
+model SurveySetting {
+  id                 String             @id @default(uuid()) @db.Uuid
+  surveyId           String             @unique @db.Uuid
+  responseLetter     String?            @default("Thank you for your response!")
+  openTime           DateTime?
+  closeTime          DateTime?
+  maxResponse        Int?
+  autoCloseCondition AutoCloseCondition @default(manual)
+  requireEmail       Boolean            @default(false)
+  allowMultipleResponses Boolean @default(true)                   // allow 1 response per user/ip-address - only one submit
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  survey             Survey             @relation(fields: [surveyId], references: [id])
+}
+
+model Question {
+  id           String       @id @default(uuid()) @db.Uuid
+  surveyId     String       @db.Uuid
+  type         QuestionType
+  questionText String
+  questionMediaUrl String?  // Thêm field này để hiển thị hình ảnh cho question
+  isRequired   Boolean      @default(false)
+  order        Int
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  answers      Answer[]
+  options      Option[]
+  survey       Survey       @relation(fields: [surveyId], references: [id])
+}
+
+model Option {
+  id            String         @id @default(uuid()) @db.Uuid
+  questionId    String         @db.Uuid
+  optionText    String
+  optionMediaUrl String?
+  isOther       Boolean        @default(false)     // Thêm trường này để đánh dấu option tùy chỉnh
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  answerOptions AnswerOption[]
+  question      Question       @relation(fields: [questionId], references: [id])
+}
+
+model Response {
+  id          String   @id @default(uuid()) @db.Uuid
+  surveyId    String   @db.Uuid
+  userId      String?  @db.Uuid
+  auth0Id     String?
+  ipAddress   String? 
+  userAgent   String? 
+  userEmail   String?
+  submittedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  answers     Answer[]
+  survey      Survey   @relation(fields: [surveyId], references: [id])
+  user        User?    @relation(fields: [userId], references: [id])
+}
+
+model Answer {
+  id         String         @id @default(uuid()) @db.Uuid
+  responseId String         @db.Uuid
+  questionId String         @db.Uuid
+  answerText String?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  question   Question       @relation(fields: [questionId], references: [id])
+  response   Response       @relation(fields: [responseId], references: [id])
+  options    AnswerOption[]
+}
+
+model AnswerOption {
+  id        String   @id @default(uuid()) @db.Uuid
+  answerId  String   @db.Uuid
+  optionId  String   @db.Uuid
+  customText String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  answer    Answer   @relation(fields: [answerId], references: [id])
+  option    Option   @relation(fields: [optionId], references: [id])
+}
+
+enum SurveyStatus {
+  PENDING
+  PUBLISHED
+  CLOSED
+}
+
+enum AutoCloseCondition {
+  manual
+  by_time
+  by_response
+}
+
+enum QuestionType {
+  short_text
+  long_text
+  multiple_choice
+  checkbox
+}

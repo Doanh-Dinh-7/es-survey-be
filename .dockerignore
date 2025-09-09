@@ -1,0 +1,13 @@
+# Dependencies
+node_modules
+
+# Build output
+dist
+
+# Environment variables
+.env
+
+# Docker files
+Dockerfile
+docker-compose.yml
+nginx.conf
