@@ -8,101 +8,122 @@ export interface SurveyInfo {
   customMessage?: string;
   responseCount?: number;
   maxResponse?: number;
+  hasMatrixQuestions?: boolean;
 }
 
 const formatDate = (date?: Date | string | null): string => {
-  if (!date) return 'Not Set';
+  if (!date) return "Not Set";
 
   try {
     let parsed: Date;
-    
-    if (typeof date === 'string') {
+
+    if (typeof date === "string") {
       parsed = new Date(date);
     } else if (date instanceof Date) {
       parsed = date;
     } else {
-      return 'Invalid Date';
+      return "Invalid Date";
     }
 
-    if (isNaN(parsed.getTime())) return 'Invalid Date';
+    if (isNaN(parsed.getTime())) return "Invalid Date";
 
-    return parsed.toLocaleString('en-US', {
-      year: 'numeric',
-      month: 'numeric',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true
+    return parsed.toLocaleString("en-US", {
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
     });
   } catch {
-    return 'Invalid Date';
+    return "Invalid Date";
   }
 };
 
 export const createNewSurveyMessage = (survey: SurveyInfo) => ({
   blocks: [
     ...(survey.customMessage
-      ? [{
-          type: "section",
-          text: { type: "mrkdwn", text: survey.customMessage }
-        }, { type: "divider" }]
+      ? [
+          {
+            type: "section",
+            text: { type: "mrkdwn", text: survey.customMessage },
+          },
+          { type: "divider" },
+        ]
       : []),
     {
       type: "header",
       text: {
         type: "plain_text",
         text: "🎯 New Survey Available",
-        emoji: true
-      }
+        emoji: true,
+      },
     },
     {
-      type: "divider"
+      type: "divider",
     },
     {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `*${survey.title}*\n${survey.description}`
-      }
+        text: `*${survey.title}*\n${survey.description}`,
+      },
     },
     {
       type: "context",
       elements: [
         {
           type: "mrkdwn",
-          text: `👤 Created by: ${survey.createdBy}\n🕒 Published at: ${formatDate(survey.publishedAt)}\n🕒 Closing at: ${formatDate(survey.closeAt)}`
-        }
-      ]
+          text: `👤 Created by: ${
+            survey.createdBy
+          }\n🕒 Published at: ${formatDate(
+            survey.publishedAt
+          )}\n🕒 Closing at: ${formatDate(survey.closeAt)}`,
+        },
+      ],
     },
     {
-      type: "divider"
+      type: "divider",
     },
     {
       type: "actions",
-      elements: [
-        {
-          type: "button",
-          text: {
-            type: "plain_text",
-            text: "Take Survey in Slack",
-            emoji: true
-          },
-          action_id: "open_survey",
-          value: survey.surveyId,
-          style: "primary"
-        },
-        {
-          type: "button",
-          text: {
-            type: "plain_text",
-            text: "Open in Browser",
-            emoji: true
-          },
-          url: `${process.env.FRONTEND_URL}/survey-preview/${survey.surveyId}`
-        }
-      ]
-    }
-  ]
+      elements: survey.hasMatrixQuestions
+        ? [
+            {
+              type: "button",
+              text: {
+                type: "plain_text",
+                text: "Open in Browser",
+                emoji: true,
+              },
+              url: `${process.env.FRONTEND_URL}/survey-preview/${survey.surveyId}`,
+              style: "primary",
+            },
+          ]
+        : [
+            {
+              type: "button",
+              text: {
+                type: "plain_text",
+                text: "Take Survey in Slack",
+                emoji: true,
+              },
+              action_id: "open_survey",
+              value: survey.surveyId,
+              style: "primary",
+            },
+            {
+              type: "button",
+              text: {
+                type: "plain_text",
+                text: "Open in Browser",
+                emoji: true,
+              },
+              url: `${process.env.FRONTEND_URL}/survey-preview/${survey.surveyId}`,
+            },
+          ],
+    },
+  ],
 });
 
 export const createSurveyClosedMessage = (survey: SurveyInfo) => ({
@@ -112,40 +133,42 @@ export const createSurveyClosedMessage = (survey: SurveyInfo) => ({
       text: {
         type: "plain_text",
         text: "🔒 Survey Closed",
-        emoji: true
-      }
+        emoji: true,
+      },
     },
     {
-      type: "divider"
+      type: "divider",
     },
     {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `*${survey.title}*\n${survey.description}`
-      }
+        text: `*${survey.title}*\n${survey.description}`,
+      },
     },
     {
       type: "context",
       elements: [
         {
           type: "mrkdwn",
-          text: `👤 Created by: ${survey.createdBy}`
-        }
-      ]
+          text: `👤 Created by: ${survey.createdBy}`,
+        },
+      ],
     },
     {
-      type: "divider"
+      type: "divider",
     },
     {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: "📊 *Survey Results*\n• Total Responses: " + (survey.responseCount || 0) + 
-              (survey.maxResponse ? ` / ${survey.maxResponse}` : '')
-      }
-    }
-  ]
+        text:
+          "📊 *Survey Results*\n• Total Responses: " +
+          (survey.responseCount || 0) +
+          (survey.maxResponse ? ` / ${survey.maxResponse}` : ""),
+      },
+    },
+  ],
 });
 
 export const createSurveyClosingSoonDM = (survey: SurveyInfo) => ({
@@ -155,30 +178,33 @@ export const createSurveyClosingSoonDM = (survey: SurveyInfo) => ({
       text: {
         type: "plain_text",
         text: "⏰ Survey Closing Soon",
-        emoji: true
-      }
+        emoji: true,
+      },
     },
     {
-      type: "divider"
-    },
-    {
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `*${survey.title}*\n${survey.description}`
-      }
+      type: "divider",
     },
     {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: "📊 *Current Status*\n" +
-              `• Responses: ${survey.responseCount || 0}${survey.maxResponse ? ` / ${survey.maxResponse}` : ''}\n` +
-              `• Closing Date: ${formatDate(survey.closeAt)}`
-      }
+        text: `*${survey.title}*\n${survey.description}`,
+      },
     },
     {
-      type: "divider"
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text:
+          "📊 *Current Status*\n" +
+          `• Responses: ${survey.responseCount || 0}${
+            survey.maxResponse ? ` / ${survey.maxResponse}` : ""
+          }\n` +
+          `• Closing Date: ${formatDate(survey.closeAt)}`,
+      },
+    },
+    {
+      type: "divider",
     },
     {
       type: "actions",
@@ -188,14 +214,14 @@ export const createSurveyClosingSoonDM = (survey: SurveyInfo) => ({
           text: {
             type: "plain_text",
             text: "View Survey",
-            emoji: true
+            emoji: true,
           },
           url: `${process.env.FRONTEND_URL}/survey-preview/${survey.surveyId}`,
-          style: "primary"
-        }
-      ]
-    }
-  ]
+          style: "primary",
+        },
+      ],
+    },
+  ],
 });
 
 export const createSurveyClosedDM = (survey: SurveyInfo) => ({
@@ -205,30 +231,33 @@ export const createSurveyClosedDM = (survey: SurveyInfo) => ({
       text: {
         type: "plain_text",
         text: "✅ Survey Closed",
-        emoji: true
-      }
+        emoji: true,
+      },
     },
     {
-      type: "divider"
-    },
-    {
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `*${survey.title}*\n${survey.description}`
-      }
+      type: "divider",
     },
     {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: "📊 *Final Results*\n" +
-              `• Total Responses: ${survey.responseCount || 0}${survey.maxResponse ? ` / ${survey.maxResponse}` : ''}\n` +
-              `• Closed Date: ${formatDate(survey.closeAt)}`
-      }
+        text: `*${survey.title}*\n${survey.description}`,
+      },
     },
     {
-      type: "divider"
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text:
+          "📊 *Final Results*\n" +
+          `• Total Responses: ${survey.responseCount || 0}${
+            survey.maxResponse ? ` / ${survey.maxResponse}` : ""
+          }\n` +
+          `• Closed Date: ${formatDate(survey.closeAt)}`,
+      },
+    },
+    {
+      type: "divider",
     },
     {
       type: "actions",
@@ -238,12 +267,12 @@ export const createSurveyClosedDM = (survey: SurveyInfo) => ({
           text: {
             type: "plain_text",
             text: "View Results",
-            emoji: true
+            emoji: true,
           },
           url: `${process.env.FRONTEND_URL}/survey-result/${survey.surveyId}`,
-          style: "primary"
-        }
-      ]
-    }
-  ]
+          style: "primary",
+        },
+      ],
+    },
+  ],
 });

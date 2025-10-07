@@ -1311,12 +1311,20 @@ export class SurveyService {
       // Lấy thông tin survey
       const survey = await prisma.survey.findUnique({
         where: { id: surveyId },
-        include: { user: true },
+        include: {
+          user: true,
+          questions: true,
+        },
       });
 
       if (!survey) {
         throw new NotFoundException("Survey not found");
       }
+
+      // Kiểm tra xem survey có câu hỏi matrix không
+      const hasMatrixQuestions = survey.questions.some(
+        (q: any) => q.type === "matrix_choice" || q.type === "matrix_input"
+      );
 
       // Gửi block template đẹp, chỉ truyền custom message vào text
       const slackMessage = {
@@ -1331,6 +1339,7 @@ export class SurveyService {
           closeAt: survey.closedAt ? new Date(survey.closedAt) : undefined,
           createdBy: survey.user?.email || "Unknown",
           surveyId: String(survey.id),
+          hasMatrixQuestions,
         }).blocks,
       };
 
