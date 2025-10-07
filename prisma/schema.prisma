@@ -66,6 +66,8 @@ model Question {
   updatedAt    DateTime     @updatedAt
   answers      Answer[]
   options      Option[]
+  matrixRows     MatrixRow[]
+  matrixColumns  MatrixColumn[]
   survey       Survey       @relation(fields: [surveyId], references: [id])
 }
 
@@ -107,6 +109,7 @@ model Answer {
   question   Question       @relation(fields: [questionId], references: [id])
   response   Response       @relation(fields: [responseId], references: [id])
   options    AnswerOption[]
+  matrixCells MatrixAnswer[]
 }
 
 model AnswerOption {
@@ -119,6 +122,46 @@ model AnswerOption {
   answer    Answer   @relation(fields: [answerId], references: [id])
   option    Option   @relation(fields: [optionId], references: [id])
 }
+
+model MatrixAnswer {
+  id           String        @id @default(uuid()) @db.Uuid
+  answerId     String        @db.Uuid
+  rowId        String        @db.Uuid
+  columnId     String?       @db.Uuid // null nếu là matrix_input (chỉ có text)
+  inputValue   String?       // dùng cho matrix_input
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  answer       Answer        @relation(fields: [answerId], references: [id])
+  row          MatrixRow     @relation(fields: [rowId], references: [id])
+  column       MatrixColumn? @relation(fields: [columnId], references: [id])
+}
+
+
+model MatrixRow {
+  id          String    @id @default(uuid()) @db.Uuid
+  questionId  String    @db.Uuid
+  label       String    // ví dụ: "Chất lượng dịch vụ", "Giá cả"
+  order       Int
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  question    Question  @relation(fields: [questionId], references: [id])
+  answers     MatrixAnswer[]
+}
+
+model MatrixColumn {
+  id          String    @id @default(uuid()) @db.Uuid
+  questionId  String    @db.Uuid
+  label       String    // ví dụ: "Không đồng ý", "Trung lập", "Hoàn toàn đồng ý"
+  order       Int
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  question    Question  @relation(fields: [questionId], references: [id])
+  answers     MatrixAnswer[]
+}
+
 
 enum SurveyStatus {
   PENDING
@@ -137,4 +180,6 @@ enum QuestionType {
   long_text
   multiple_choice
   checkbox
+  matrix_choice 
+  matrix_input
 }

@@ -79,6 +79,16 @@ interface QuestionWithOptions {
     optionMediaUrl?: string;
     isOther?: boolean;
   }>;
+  matrixRows?: Array<{
+    id?: string;
+    label: string;
+    order: number;
+  }>;
+  matrixColumns?: Array<{
+    id?: string;
+    label: string;
+    order: number;
+  }>;
 }
 
 export class SurveyService {
@@ -131,6 +141,17 @@ export class SurveyService {
                 })
               )
             : undefined;
+          // Xử lý matrix data
+          const matrixRows = q.matrixRows?.map((row) => ({
+            label: row.label,
+            order: row.order,
+          }));
+
+          const matrixColumns = q.matrixColumns?.map((col) => ({
+            label: col.label,
+            order: col.order,
+          }));
+
           return {
             questionText: q.questionText,
             questionMediaUrl,
@@ -138,6 +159,10 @@ export class SurveyService {
             isRequired: q.isRequired ?? false,
             order: q.order ?? idx + 1,
             options: options ? { create: options } : undefined,
+            matrixRows: matrixRows ? { create: matrixRows } : undefined,
+            matrixColumns: matrixColumns
+              ? { create: matrixColumns }
+              : undefined,
           };
         })
       );
@@ -163,11 +188,20 @@ export class SurveyService {
           },
         },
         include: {
-          questions: { include: { options: true } },
+          questions: {
+            include: {
+              options: true,
+              matrixRows: true,
+              matrixColumns: true,
+            },
+          },
           settings: true,
         },
       });
-      console.log('🔥 Survey created:', survey.questions.map(q => q.options));
+      console.log(
+        "🔥 Survey created:",
+        survey.questions.map((q) => q.options)
+      );
       return { ...survey, userId: survey.userId! };
     });
   }
@@ -179,7 +213,13 @@ export class SurveyService {
     const survey = await prisma.survey.findUnique({
       where: { id: surveyId },
       include: {
-        questions: { include: { options: true } },
+        questions: {
+          include: {
+            options: true,
+            matrixRows: true,
+            matrixColumns: true,
+          },
+        },
         settings: true,
       },
     });
@@ -199,7 +239,7 @@ export class SurveyService {
     pageSize: number = 9
   ): Promise<SurveyListResponse> {
     const skip = (page - 1) * pageSize;
-  
+
     const [surveys, total] = await Promise.all([
       prisma.survey.findMany({
         where: {
@@ -221,7 +261,7 @@ export class SurveyService {
         },
       }),
     ]);
-  
+
     return {
       surveys: surveys.map((survey) => ({
         ...survey,
@@ -257,7 +297,11 @@ export class SurveyService {
       where: { id: surveyId },
       include: {
         questions: {
-          include: { options: true },
+          include: {
+            options: true,
+            matrixRows: true,
+            matrixColumns: true,
+          },
         },
         settings: true,
       },
@@ -288,6 +332,12 @@ export class SurveyService {
     );
     for (const question of questionsToDelete) {
       await prisma.option.deleteMany({
+        where: { questionId: question.id },
+      });
+      await prisma.matrixRow.deleteMany({
+        where: { questionId: question.id },
+      });
+      await prisma.matrixColumn.deleteMany({
         where: { questionId: question.id },
       });
     }
@@ -366,6 +416,26 @@ export class SurveyService {
                         isOther: o.isOther ?? false,
                       })),
                   },
+
+                  matrixRows: q.matrixRows
+                    ? {
+                        deleteMany: {},
+                        create: q.matrixRows.map((row) => ({
+                          label: row.label,
+                          order: row.order,
+                        })),
+                      }
+                    : undefined,
+
+                  matrixColumns: q.matrixColumns
+                    ? {
+                        deleteMany: {},
+                        create: q.matrixColumns.map((col) => ({
+                          label: col.label,
+                          order: col.order,
+                        })),
+                      }
+                    : undefined,
                 },
               })),
             // Create new questions
@@ -386,6 +456,22 @@ export class SurveyService {
                     isOther: o.isOther ?? false,
                   })),
                 },
+                matrixRows: q.matrixRows
+                  ? {
+                      create: q.matrixRows.map((row) => ({
+                        label: row.label,
+                        order: row.order,
+                      })),
+                    }
+                  : undefined,
+                matrixColumns: q.matrixColumns
+                  ? {
+                      create: q.matrixColumns.map((col) => ({
+                        label: col.label,
+                        order: col.order,
+                      })),
+                    }
+                  : undefined,
               })),
           },
           settings: {
@@ -393,7 +479,13 @@ export class SurveyService {
           },
         },
         include: {
-          questions: { include: { options: true } },
+          questions: {
+            include: {
+              options: true,
+              matrixRows: true,
+              matrixColumns: true,
+            },
+          },
           settings: true,
         },
       });
@@ -412,9 +504,12 @@ export class SurveyService {
         questions: {
           include: {
             options: true,
+            matrixRows: true,
+            matrixColumns: true,
             answers: {
               include: {
                 options: true,
+                matrixCells: true,
               },
             },
           },
@@ -454,7 +549,16 @@ export class SurveyService {
 
     // Delete in transaction to ensure all related records are deleted
     await prisma.$transaction(async (tx) => {
-      // Delete answer options first (they reference answers)
+      // Delete matrix answers first (they reference answers, rows, columns)
+      for (const question of survey.questions) {
+        for (const answer of question.answers) {
+          await tx.matrixAnswer.deleteMany({
+            where: { answerId: answer.id },
+          });
+        }
+      }
+
+      // Delete answer options (they reference answers)
       for (const question of survey.questions) {
         for (const answer of question.answers) {
           await tx.answerOption.deleteMany({
@@ -473,6 +577,16 @@ export class SurveyService {
       // Delete options
       for (const question of survey.questions) {
         await tx.option.deleteMany({
+          where: { questionId: question.id },
+        });
+      }
+
+      // Delete matrix rows and columns
+      for (const question of survey.questions) {
+        await tx.matrixRow.deleteMany({
+          where: { questionId: question.id },
+        });
+        await tx.matrixColumn.deleteMany({
           where: { questionId: question.id },
         });
       }
@@ -517,16 +631,16 @@ export class SurveyService {
       },
     });
 
-    if (!survey){
+    if (!survey) {
       throw new NotFoundException("Survey not found", [
         { field: "surveyId", message: "Survey ID not found" },
       ]);
     }
 
     let updateStatus;
-    if (survey.status === SurveyStatus.PENDING){
+    if (survey.status === SurveyStatus.PENDING) {
       updateStatus = SurveyStatus.PUBLISHED;
-    } else if( survey.status=== SurveyStatus.PUBLISHED) {
+    } else if (survey.status === SurveyStatus.PUBLISHED) {
       updateStatus = SurveyStatus.CLOSED;
     } else {
       throw new ForbiddenException("Survey already close");
@@ -563,9 +677,10 @@ export class SurveyService {
         updatedSurvey.publishedAt || updatedSurvey.settings?.openTime,
     };
 
-    const channels = channelsFromFE?.length ? channelsFromFE : [`${process.env.SLACK_MAIN_CHANNEL_ID}`];
-    if (updateStatus == SurveyStatus.PUBLISHED)
-    {
+    const channels = channelsFromFE?.length
+      ? channelsFromFE
+      : [`${process.env.SLACK_MAIN_CHANNEL_ID}`];
+    if (updateStatus == SurveyStatus.PUBLISHED) {
       await notifyNewSurvey(surveyForNotification, channels, customMessage);
     } else {
       await notifySurveyClosed(surveyForNotification, channels);
@@ -581,6 +696,8 @@ export class SurveyService {
         questions: {
           include: {
             options: true,
+            matrixRows: true,
+            matrixColumns: true,
           },
         },
         settings: true,
@@ -607,18 +724,20 @@ export class SurveyService {
         questions: {
           include: {
             options: true,
+            matrixRows: true,
+            matrixColumns: true,
           },
         },
         settings: true,
       },
     });
-    if (!survey){
+    if (!survey) {
       throw new NotFoundException("Survey not found", [
         { field: "surveyId", message: "Survey ID not found" },
       ]);
     }
 
-    console.log("survey:" , survey);
+    console.log("survey:", survey);
     // Duplicate surveyMediaUrl nếu có
     let surveyMediaUrl = survey.surveyMediaUrl ?? null;
     if (surveyMediaUrl) {
@@ -651,6 +770,16 @@ export class SurveyService {
               })
             )
           : undefined;
+        const matrixRows = q.matrixRows?.map((row) => ({
+          label: row.label,
+          order: row.order,
+        }));
+
+        const matrixColumns = q.matrixColumns?.map((col) => ({
+          label: col.label,
+          order: col.order,
+        }));
+
         return {
           questionText: q.questionText,
           questionMediaUrl,
@@ -658,6 +787,8 @@ export class SurveyService {
           isRequired: q.isRequired ?? false,
           order: q.order ?? idx + 1,
           options: options ? { create: options } : undefined,
+          matrixRows: matrixRows ? { create: matrixRows } : undefined,
+          matrixColumns: matrixColumns ? { create: matrixColumns } : undefined,
         };
       })
     );
@@ -747,7 +878,13 @@ export class SurveyService {
       where: { id: surveyId, status: SurveyStatus.PUBLISHED },
       include: {
         settings: true,
-        questions: { include: { options: true } },
+        questions: {
+          include: {
+            options: true,
+            matrixRows: true,
+            matrixColumns: true,
+          },
+        },
         _count: { select: { responses: true } },
       },
     });
@@ -843,6 +980,43 @@ export class SurveyService {
             }
             break;
 
+          case QuestionType.matrix_choice:
+            if (submitted.matrixAnswers) {
+              // Validate matrix choice answers
+              for (const matrixAnswer of submitted.matrixAnswers) {
+                const row = question.matrixRows?.find(
+                  (r) => r.id === matrixAnswer.rowId
+                );
+                const column = question.matrixColumns?.find(
+                  (c) => c.id === matrixAnswer.columnId
+                );
+
+                if (!row || !column) {
+                  throw new BadRequestException(
+                    `Invalid matrix answer for question ${question.id}`
+                  );
+                }
+              }
+            }
+            break;
+
+          case QuestionType.matrix_input:
+            if (submitted.matrixAnswers) {
+              // Validate matrix input answers
+              for (const matrixAnswer of submitted.matrixAnswers) {
+                const row = question.matrixRows?.find(
+                  (r) => r.id === matrixAnswer.rowId
+                );
+
+                if (!row || !matrixAnswer.inputValue?.trim()) {
+                  throw new BadRequestException(
+                    `Matrix input required for question ${question.id}`
+                  );
+                }
+              }
+            }
+            break;
+
           // optional: handle short_text / long_text min/max length
         }
       }
@@ -893,6 +1067,22 @@ export class SurveyService {
                 };
               }
 
+              // Handle matrix questions
+              if (
+                question.type === "matrix_choice" ||
+                question.type === "matrix_input"
+              ) {
+                if (a.matrixAnswers && a.matrixAnswers.length > 0) {
+                  answerData.matrixCells = {
+                    create: a.matrixAnswers.map((matrixAnswer) => ({
+                      rowId: matrixAnswer.rowId,
+                      columnId: matrixAnswer.columnId,
+                      inputValue: matrixAnswer.inputValue,
+                    })),
+                  };
+                }
+              }
+
               return answerData;
             }),
           },
@@ -915,7 +1105,7 @@ export class SurveyService {
           include: {
             user: true, // For sending notification to owner
             settings: true,
-            _count: { select: {responses: true}},
+            _count: { select: { responses: true } },
           },
         });
 
@@ -1030,6 +1220,17 @@ export class SurveyService {
                 })
               )
             : undefined;
+
+          const matrixRows = q.matrixRows?.map((row) => ({
+            label: row.label,
+            order: row.order,
+          }));
+
+          const matrixColumns = q.matrixColumns?.map((col) => ({
+            label: col.label,
+            order: col.order,
+          }));
+
           return {
             questionText: q.questionText,
             questionMediaUrl,
@@ -1037,6 +1238,10 @@ export class SurveyService {
             isRequired: q.isRequired ?? false,
             order: q.order ?? idx + 1,
             options: options ? { create: options } : undefined,
+            matrixRows: matrixRows ? { create: matrixRows } : undefined,
+            matrixColumns: matrixColumns
+              ? { create: matrixColumns }
+              : undefined,
           };
         })
       );
@@ -1063,7 +1268,13 @@ export class SurveyService {
           },
         },
         include: {
-          questions: { include: { options: true } },
+          questions: {
+            include: {
+              options: true,
+              matrixRows: true,
+              matrixColumns: true,
+            },
+          },
           settings: true,
         },
       });
@@ -1076,29 +1287,35 @@ export class SurveyService {
     try {
       // Sử dụng slackApp có sẵn để lấy danh sách channels
       const result = await slackApp.client.conversations.list({
-        types: 'public_channel,private_channel'
+        types: "public_channel,private_channel",
       });
 
-      return result.channels?.map((channel: any) => ({
-        id: channel.id,
-        name: channel.name
-      })) || [];
+      return (
+        result.channels?.map((channel: any) => ({
+          id: channel.id,
+          name: channel.name,
+        })) || []
+      );
     } catch (error) {
-      console.error('Error getting Slack channels:', error);
-      throw new InternalServerErrorException('Failed to get Slack channels');
+      console.error("Error getting Slack channels:", error);
+      throw new InternalServerErrorException("Failed to get Slack channels");
     }
   }
 
-  static async sendSlackNotification(surveyId: string, channels: string[], message: string) {
+  static async sendSlackNotification(
+    surveyId: string,
+    channels: string[],
+    message: string
+  ) {
     try {
       // Lấy thông tin survey
       const survey = await prisma.survey.findUnique({
         where: { id: surveyId },
-        include: { user: true }
+        include: { user: true },
       });
 
       if (!survey) {
-        throw new NotFoundException('Survey not found');
+        throw new NotFoundException("Survey not found");
       }
 
       // Gửi block template đẹp, chỉ truyền custom message vào text
@@ -1108,27 +1325,31 @@ export class SurveyService {
           title: String(survey.title),
           customMessage: message,
           description: String(survey.description),
-          publishedAt: survey.publishedAt ? new Date(survey.publishedAt) : undefined,
+          publishedAt: survey.publishedAt
+            ? new Date(survey.publishedAt)
+            : undefined,
           closeAt: survey.closedAt ? new Date(survey.closedAt) : undefined,
-          createdBy: survey.user?.email || 'Unknown',
-          surveyId: String(survey.id)
-        }).blocks
+          createdBy: survey.user?.email || "Unknown",
+          surveyId: String(survey.id),
+        }).blocks,
       };
 
       // Gửi message đến các channels sử dụng slackApp
-      const promises = channels.map(channelId => 
+      const promises = channels.map((channelId) =>
         slackApp.client.chat.postMessage({
           channel: channelId,
-          ...slackMessage
+          ...slackMessage,
         })
       );
 
       await Promise.all(promises);
-      
+
       return { success: true };
     } catch (error) {
-      console.error('Error sending Slack notification:', error);
-      throw new InternalServerErrorException('Failed to send Slack notification');
+      console.error("Error sending Slack notification:", error);
+      throw new InternalServerErrorException(
+        "Failed to send Slack notification"
+      );
     }
   }
 }
