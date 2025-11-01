@@ -38,15 +38,43 @@ export const questionSchema = z.object({
   matrixColumns: z.array(matrixColumnSchema).optional(), // Only for matrix_choice
 });
 
-export const updateSurveySettingSchema = z.object({
-  requireEmail: z.boolean().optional(),
-  allowMultipleResponses: z.boolean().optional(),
-  responseLetter: z.string().optional(),
-  openTime: z.string().optional(), //2024-03-20T00:00:00Z
-  closeTime: z.string().optional(),
-  maxResponse: z.number().int().optional(),
-  autoCloseCondition: z.enum(["manual", "by_time", "by_response"]).optional(),
-});
+export const updateSurveySettingSchema = z
+  .object({
+    requireEmail: z.boolean().optional(),
+    allowMultipleResponses: z.boolean().optional(),
+    responseLetter: z.string().optional(),
+    openTime: z.string().optional(), //2024-03-20T00:00:00Z
+    closeTime: z.string().optional(),
+    maxResponse: z.number().int().optional(),
+    autoCloseCondition: z.enum(["manual", "by_time", "by_response"]).optional(),
+    enableTiming: z.boolean().optional(),
+    timingDuration: z.number().int().min(1).optional(),
+  })
+  .refine(
+    (data) => {
+      if (data.enableTiming && !data.requireEmail) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: "Email is required when timing is enabled",
+      path: ["requireEmail"],
+    }
+  )
+  .refine(
+    (data) => {
+      // If timing is enabled, timingDuration must be provided
+      if (data.enableTiming && !data.timingDuration) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: "Timing duration is required when timing is enabled",
+      path: ["timingDuration"],
+    }
+  );
 
 export const createSurveySchema = z.object({
   title: z.string().min(1, "Title is required"),
@@ -78,7 +106,10 @@ export const submitSurveySchema = z.object({
   answers: z.array(
     z.object({
       questionId: z.string().uuid(),
-      answer: z.string().min(1, "Answer is required"),
+      answer: z.union([
+        z.string().min(1, "Answer is required"),
+        z.record(z.string(), z.any()),
+      ]),
       customText: z.string().optional().or(z.literal("")),
       matrixAnswers: z.array(matrixAnswerSchema).optional(),
     })
@@ -86,9 +117,20 @@ export const submitSurveySchema = z.object({
   userEmail: z.string().email("Invalid email format").optional(),
   ipAddress: z.string().optional(),
   userAgent: z.string().optional(),
+  sessionId: z.string().uuid().optional(),
+});
+
+export const startSessionSchema = z.object({
+  userEmail: z.string().email("Invalid email format"),
+});
+
+export const validateSessionSchema = z.object({
+  sessionId: z.string().uuid(),
 });
 
 export type CreateSurveyDto = z.infer<typeof createSurveySchema>;
 export type UpdateSurveyDto = z.infer<typeof updateSurveySchema>;
 export type UpdateSurveySettingDto = z.infer<typeof updateSurveySettingSchema>;
 export type SubmitSurveyDto = z.infer<typeof submitSurveySchema>;
+export type StartSessionDto = z.infer<typeof startSessionSchema>;
+export type ValidateSessionDto = z.infer<typeof validateSessionSchema>;

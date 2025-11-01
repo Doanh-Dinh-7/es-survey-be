@@ -35,6 +35,7 @@ model Survey {
   userId      String?        @db.Uuid
   questions   Question[]
   responses   Response[]
+  sessions    SurveySession[]
   user        User?          @relation(fields: [userId], references: [id])
   settings    SurveySetting?
 }
@@ -49,9 +50,12 @@ model SurveySetting {
   autoCloseCondition AutoCloseCondition @default(manual)
   requireEmail       Boolean            @default(false)
   allowMultipleResponses Boolean @default(true)                   // allow 1 response per user/ip-address - only one submit
+  enableTiming       Boolean            @default(false)           
+  timingDuration     Int?               // duration in minutes
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
   survey             Survey             @relation(fields: [surveyId], references: [id])
+  sessions           SurveySession[]
 }
 
 model Question {
@@ -91,12 +95,28 @@ model Response {
   ipAddress   String? 
   userAgent   String? 
   userEmail   String?
+  sessionId   String?  @db.Uuid
   submittedAt DateTime @default(now())
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   answers     Answer[]
   survey      Survey   @relation(fields: [surveyId], references: [id])
   user        User?    @relation(fields: [userId], references: [id])
+  session     SurveySession? @relation(fields: [sessionId], references: [id])
+}
+
+model SurveySession {
+  id          String   @id @default(uuid()) @db.Uuid
+  surveyId    String   @db.Uuid
+  userEmail   String
+  startTime   DateTime @default(now())
+  endTime     DateTime?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  survey      Survey   @relation(fields: [surveyId], references: [id], map: "SurveySession_survey_fkey")
+  responses   Response[]
+  settings    SurveySetting @relation(fields: [surveyId], references: [surveyId], map: "SurveySession_settings_fkey")
 }
 
 model Answer {

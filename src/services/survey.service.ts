@@ -11,6 +11,8 @@ import {
   SubmitSurveyDto,
   UpdateSurveyDto,
   UpdateSurveySettingDto,
+  StartSessionDto,
+  ValidateSessionDto,
 } from "../dtos/survey.dto";
 import {
   BadRequestException,
@@ -184,6 +186,8 @@ export class SurveyService {
               maxResponse: data.settings?.maxResponse,
               autoCloseCondition: data.settings?.autoCloseCondition,
               allowMultipleResponses: data.settings?.allowMultipleResponses,
+              enableTiming: data.settings?.enableTiming,
+              timingDuration: data.settings?.timingDuration,
             },
           },
         },
@@ -855,6 +859,8 @@ export class SurveyService {
             maxResponse: data.maxResponse,
             autoCloseCondition: data.autoCloseCondition as AutoCloseCondition,
             responseLetter: data.responseLetter,
+            enableTiming: data.enableTiming,
+            timingDuration: data.timingDuration,
           },
         },
       },
@@ -902,6 +908,25 @@ export class SurveyService {
 
     if (survey.settings?.requireEmail && !data.userEmail) {
       throw new BadRequestException("Email is required");
+    }
+
+    // Timing validation
+    if (survey.settings?.enableTiming) {
+      if (!data.sessionId) {
+        throw new BadRequestException(
+          "Session ID is required for timed surveys"
+        );
+      }
+
+      // Validate session
+      const sessionValidation = await this.validateTimingSession(surveyId, {
+        sessionId: data.sessionId,
+      });
+      if (!sessionValidation.isValid) {
+        throw new BadRequestException(
+          sessionValidation.message || "Session has expired"
+        );
+      }
     }
 
     // Check if user has already submitted (if allowMultipleResponses is false)
@@ -960,7 +985,7 @@ export class SurveyService {
 
           case QuestionType.checkbox:
             const optionIds = submitted.answer.split(",");
-            const hasOtherOption = optionIds.some((id) => {
+            const hasOtherOption = optionIds.some((id: string) => {
               const option = question.options.find((opt) => opt.id === id);
               return option?.isOther;
             });
@@ -970,7 +995,7 @@ export class SurveyService {
               submitted.customText = "";
             }
 
-            const allValid = optionIds.every((id) =>
+            const allValid = optionIds.every((id: string) =>
               question.options.some((opt) => opt.id === id)
             );
             if (!allValid) {
@@ -1030,23 +1055,34 @@ export class SurveyService {
           userId,
           auth0Id,
           userEmail: data.userEmail,
+          sessionId: data.sessionId,
           answers: {
             create: data.answers.map((a) => {
               const question = survey.questions.find(
                 (q) => q.id === a.questionId
               )!;
-              const isChoice = ["multiple_choice", "checkbox"].includes(
-                question.type
-              );
+              const isChoiceOrMatrix = [
+                "multiple_choice",
+                "checkbox",
+                "matrix_choice",
+                "matrix_input",
+              ].includes(question.type);
 
               const answerData: any = {
                 questionId: a.questionId,
-                answerText: isChoice ? null : a.answer,
+                answerText: isChoiceOrMatrix
+                  ? null
+                  : typeof a.answer === "string"
+                  ? a.answer
+                  : null,
               };
 
               // If it's a choice-type, add selected options
               if (question.type === "multiple_choice") {
-                const selectedId = a.answer;
+                const selectedId =
+                  typeof a.answer === "string"
+                    ? a.answer
+                    : Object.keys(a.answer)[0];
                 answerData.options = {
                   create: [
                     {
@@ -1058,7 +1094,15 @@ export class SurveyService {
               }
 
               if (question.type === "checkbox") {
-                const optionIds = a.answer.split(",");
+                let optionIds: string[];
+                if (typeof a.answer === "string") {
+                  optionIds = a.answer.split(",");
+                } else if (typeof a.answer === "object" && a.answer !== null) {
+                  optionIds = Object.keys(a.answer);
+                } else {
+                  optionIds = [];
+                }
+
                 answerData.options = {
                   create: optionIds.map((id) => ({
                     optionId: id,
@@ -1079,6 +1123,31 @@ export class SurveyService {
                       columnId: matrixAnswer.columnId,
                       inputValue: matrixAnswer.inputValue,
                     })),
+                  };
+                } else if (typeof a.answer === "object" && a.answer !== null) {
+                  const matrixCells = Object.entries(a.answer).map(
+                    ([key, value]) => {
+                      if (question.type === "matrix_choice") {
+                        return {
+                          rowId: key,
+                          columnId:
+                            typeof value === "string" ? value : String(value),
+                          inputValue: null,
+                        };
+                      } else {
+                        const [rowId, columnId] = key.split("_");
+                        return {
+                          rowId: rowId,
+                          columnId: columnId,
+                          inputValue:
+                            typeof value === "string" ? value : String(value),
+                        };
+                      }
+                    }
+                  );
+
+                  answerData.matrixCells = {
+                    create: matrixCells,
                   };
                 }
               }
@@ -1360,5 +1429,138 @@ export class SurveyService {
         "Failed to send Slack notification"
       );
     }
+  }
+
+  // Timing session methods
+  static async startTimingSession(
+    surveyId: string,
+    data: StartSessionDto
+  ): Promise<{ sessionId: string; startTime: Date; duration: number }> {
+    const survey = await prisma.survey.findUnique({
+      where: { id: surveyId, status: SurveyStatus.PUBLISHED },
+      include: { settings: true },
+    });
+
+    if (!survey) {
+      throw new NotFoundException("Survey not found or not published");
+    }
+
+    if (!survey.settings?.enableTiming) {
+      throw new BadRequestException("Timing is not enabled for this survey");
+    }
+
+    if (!survey.settings?.requireEmail) {
+      throw new BadRequestException("Email is required when timing is enabled");
+    }
+
+    if (!survey.settings?.timingDuration) {
+      throw new BadRequestException("Timing duration is not set");
+    }
+
+    // Check if user already has an active session
+    const existingSession = await prisma.surveySession.findFirst({
+      where: {
+        surveyId,
+        userEmail: data.userEmail,
+        isActive: true,
+      },
+    });
+
+    if (existingSession) {
+      // Check if session is still valid (not expired)
+      const now = new Date();
+      const sessionEndTime = new Date(
+        existingSession.startTime.getTime() +
+          (survey.settings.timingDuration + 3) * 60 * 1000 // +3 minutes buffer
+      );
+
+      if (now < sessionEndTime) {
+        return {
+          sessionId: existingSession.id,
+          startTime: existingSession.startTime,
+          duration: survey.settings.timingDuration,
+        };
+      } else {
+        // Expire the old session
+        await prisma.surveySession.update({
+          where: { id: existingSession.id },
+          data: { isActive: false, endTime: now },
+        });
+      }
+    }
+
+    // Create new session
+    const session = await prisma.surveySession.create({
+      data: {
+        surveyId,
+        userEmail: data.userEmail,
+        startTime: new Date(),
+        isActive: true,
+      },
+    });
+
+    return {
+      sessionId: session.id,
+      startTime: session.startTime,
+      duration: survey.settings.timingDuration,
+    };
+  }
+
+  static async validateTimingSession(
+    surveyId: string,
+    data: ValidateSessionDto
+  ): Promise<{ isValid: boolean; timeRemaining?: number; message?: string }> {
+    const session = await prisma.surveySession.findUnique({
+      where: { id: data.sessionId },
+      include: { survey: { include: { settings: true } } },
+    });
+
+    if (!session) {
+      return { isValid: false, message: "Session not found" };
+    }
+
+    if (!session.isActive) {
+      return { isValid: false, message: "Session has expired" };
+    }
+
+    if (session.surveyId !== surveyId) {
+      return { isValid: false, message: "Invalid session for this survey" };
+    }
+
+    const now = new Date();
+    const sessionEndTime = new Date(
+      session.startTime.getTime() +
+        (session.survey.settings?.timingDuration || 0) * 60 * 1000
+    );
+    const bufferEndTime = new Date(sessionEndTime.getTime() + 3 * 60 * 1000); // +3 minutes buffer
+
+    if (now > bufferEndTime) {
+      // Session expired, mark as inactive
+      await prisma.surveySession.update({
+        where: { id: session.id },
+        data: { isActive: false, endTime: now },
+      });
+      return { isValid: false, message: "Session has expired" };
+    }
+
+    const timeRemaining = Math.max(
+      0,
+      Math.floor((sessionEndTime.getTime() - now.getTime()) / 1000)
+    );
+
+    return {
+      isValid: true,
+      timeRemaining,
+    };
+  }
+
+  static async expireTimingSession(sessionId: string): Promise<void> {
+    await prisma.surveySession.update({
+      where: { id: sessionId },
+      data: {
+        isActive: false,
+        endTime: new Date(),
+      },
+    });
   }
 }

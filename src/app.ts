@@ -15,7 +15,11 @@ const app = express();
 
 app.use(
   cors({
-    origin: [`${process.env.FRONTEND_URL}`, "http://localhost:5173", "http://192.168.1.23:5173"],
+    origin: [
+      `${process.env.FRONTEND_URL}`,
+      "http://localhost:5173",
+      "http://192.168.1.23:5173",
+    ],
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     credentials: true,
   })
@@ -49,9 +53,9 @@ app.use("/api/v1/slack", slackRoutes);
 app.use("/images", express.static(path.join(__dirname, "../media/images")));
 
 // Optional: Add an endpoint to manually trigger status checks (for testing)
-app.post('/api/v1/admin/check-survey-status', async (req, res) => {
+app.post("/api/v1/admin/check-survey-status", async (req, res) => {
   await CronService.checkAndUpdateSurveyStatus();
-  res.json({ message: 'Survey status check triggered' });
+  res.json({ message: "Survey status check triggered" });
 });
 
 // Error handling

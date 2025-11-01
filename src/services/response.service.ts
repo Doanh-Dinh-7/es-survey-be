@@ -402,8 +402,32 @@ export class ResponseService {
     if (survey.userId !== userId)
       throw new ForbiddenException("Not your survey");
 
-    await prisma.response.delete({
-      where: { id: responseId, surveyId },
+    await prisma.$transaction(async (tx) => {
+      await tx.matrixAnswer.deleteMany({
+        where: {
+          answer: {
+            responseId: responseId,
+          },
+        },
+      });
+
+      await tx.answerOption.deleteMany({
+        where: {
+          answer: {
+            responseId: responseId,
+          },
+        },
+      });
+
+      await tx.answer.deleteMany({
+        where: {
+          responseId: responseId,
+        },
+      });
+
+      await tx.response.delete({
+        where: { id: responseId, surveyId },
+      });
     });
   }
 }
